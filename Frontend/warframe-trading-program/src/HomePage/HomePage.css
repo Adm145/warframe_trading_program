@@ -1,0 +1,19 @@
+.HomePage  {
+    display: flex;
+    flex-direction: row;
+    min-height: 100vh;
+}
+
+.section1 {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid green;
+    width: 50%;
+}
+
+.section2 {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid blue;
+    width: 50%;
+}
