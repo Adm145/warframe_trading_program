@@ -1,17 +1,23 @@
-API_DATA_TO_IMPLEMENT
-======================
+API_DATA_TO_IMPLEMENT - ALL MILESTONES COMPLETE
+==================================================
 Data points from warframe.market (v2, except milestone 2 and step 6.a which
-are v1 only - see notes) still needed to match the logic/data used in
-https://github.com/akmayer/Warframe-Algo-Trader.git.
+are v1 only - see notes) needed to match the logic/data used in
+https://github.com/akmayer/Warframe-Algo-Trader.git - kept as a reference
+log of non-obvious API discoveries (endpoint paths, required fields, auth
+quirks) that aren't self-evident from reading the code alone.
 Milestones 4 and 5 turned out to live under v2 (/v2/orders/my etc.), not
 v1/profile as the reference repo used - see the REVISED notes on each.
-Auth (milestone 6) still only exists via v1 sign-in, but the resulting
-token must be reformatted (JWT -> Bearer, prefix stripped) to work
-against v2 - see step 6.e.
+Auth (milestone 6) obtains its token via v1 sign-in internally, gated
+behind a separate bcrypt-checked access key rather than the frontend ever
+sending real market credentials - see milestone 6 for the final design.
 
-Currently implemented (orders.controller.js):
+Currently implemented (orders.controller.js / order.controller.js /
+auth.controller.js / items.controller.js):
   [x] GET /v2/orders/item/{item_name}       - full live order book for an item
   [x] GET /v2/orders/item/{item_name}/top   - top 5 buy/sell orders for an item
+  [x] GET /orders/user                      - your own orders (milestone 4)
+  [x] POST/PATCH/DELETE /order/*            - order mutations (milestone 5)
+  [x] POST /auth/unlock                     - access-key-gated login (milestone 6)
 
 
 MILESTONES
@@ -55,9 +61,8 @@ MILESTONES
     that come back from milestone 4's /v2/orders/my response.
 
 [X] 4. Your own current orders - GET /v2/orders/my  (REVISED - see below)
-    NOT YET WIRED INTO EXPRESS - confirmed via direct API calls only;
-    orders.route.js/orders.controller.js still need a real route/controller
-    for this (same Bearer-token pattern as milestone 5).
+    WIRED INTO EXPRESS: GET /orders/user -> orders.controller.js's
+    getUserOrders, reading the token via session.util.js's getSession().
     SUPERSEDED FINDING: the reference repo's path,
     GET /v1/profile/{inGameName}/orders, is dead. Confirmed live:
       - GET /v1/profile              -> {"error":"Deprecated"}  (403)
@@ -90,9 +95,12 @@ MILESTONES
     cycle tested end-to-end against a real, throwaway order)
     NOTE: path is /v2/order, SINGULAR - inconsistent with the read
     endpoint /v2/orders/my (plural). Easy to get wrong.
-    NOT YET WIRED INTO EXPRESS - confirmed via direct API calls only;
-    orders.route.js/orders.controller.js still need the real
-    routes/controllers written (see stubs below).
+    WIRED INTO EXPRESS: Backend/routes/order.route.js +
+    Backend/controllers/order.controller.js - postNewOrder (POST
+    /order/add/:item_name), updateOrderById (PATCH /order/update/:order_id),
+    deleteOrderById (DELETE /order/delete/:order_id), and closeOrderById
+    (POST /order/close/:order_id, reduces quantity or deletes outright if
+    no quantity given / quantity would hit zero).
 
     a) POST https://api.warframe.market/v2/order
        Auth: same "Authorization: Bearer <token>" as /v2/me, /v2/orders/my
@@ -124,21 +132,47 @@ MILESTONES
     Reference: postOrder, updateListing, deleteOrder in
     AccessingWFMarket.py - the actual trading actions called by
     compareLiveOrdersWhenBuying / compareLiveOrdersWhenSelling.
-    orders.route.js currently has empty stubs for these three verbs
-    (route.post(''), route.put(''), route.delete('')) - these need
-    real paths (/:order_id where applicable), the PUT stub needs to
-    become a PATCH, and matching controller functions need writing.
-    Requires auth (milestone 6) - same Bearer-token flow already built.
 
-[ ] 6. Auth/login - POST /v1/auth/signin (v2 OAuth not available yet)
-    CONFIRMED: per https://docs.warframe.market/docs/oauth/overview, v2
-    OAuth is not live yet. v1 sign-in is still the only way to obtain a
-    token, but that token must be reformatted before it will work against
-    the live v2 endpoints found in milestone 4 - see step (e) below, added
-    after live-testing with real credentials.
+[X] 6. Auth/login - POST /auth/unlock (bcrypt-gated, .env-sourced
+    credentials - FINAL DESIGN, supersedes the original plan below)
 
-    How v1 auth works (from getWFMtoken.py / AccessingWFMarket.py /
-    config.py in the reference repo):
+    Real market credentials never touch the frontend at all, not even
+    once. Final architecture:
+      - .env holds WFM_EMAIL, WFM_PASSWORD (real market credentials,
+        backend-only) and ACCESS_KEY_HASH (a bcrypt hash of a separate,
+        unrelated personal access key chosen by the user - not the
+        market password).
+      - POST /auth/unlock takes { accessKey } from the frontend. Backend
+        compares it against ACCESS_KEY_HASH via bcrypt.compare
+        (Backend/bcrypt/accessKey.util.js -> compareAccessKey). Only on
+        a match does it run the v1 sign-in internally using
+        WFM_EMAIL/WFM_PASSWORD from .env, save the resulting token via
+        session.util.js's saveSession, and respond with
+        { ingameName, timestamp } only - the token itself never leaves
+        the backend.
+      - Backend/bcrypt/generateHash.js is a one-off CLI script
+        (node bcrypt/generateHash.js "your-key") to generate the
+        ACCESS_KEY_HASH value once, run manually, not imported by the app.
+      - The original signInController (raw email/password read from the
+        request body) was implemented first, then removed entirely once
+        unlockController fully replaced it - keeping both would have left
+        signInController as a completely unauthenticated back door
+        achieving the same result with no access-key gate at all.
+      - Frontend implication: only ever prompt for the access key, never
+        for real market credentials. Show the prompt when any
+        authenticated call returns 401 (token expires after ~60 days per
+        the JWT's own exp/iat claims), call POST /auth/unlock, then
+        retry/refresh.
+
+    LIVE-TESTED: wrong access key -> 401 "Invalid access key."; correct
+    access key -> 200 { ingameName, timestamp }, confirmed session.json
+    updated with a fresh real token.
+
+    The (a)/(b)/(e) notes below are the original research into how v1
+    auth works and are still technically accurate and still used inside
+    unlockController today (same request shape, same "JWT " -> "Bearer "
+    conversion). (c)/(d) described the reference repo's v1-only pattern
+    and don't reflect the final code path - kept for context only.
 
  [X]  a) POST https://api.warframe.market/v1/auth/signin
         Headers: Content-Type: application/json; utf-8,
@@ -151,41 +185,27 @@ MILESTONES
         "auth_type": "header" tells warframe.market to return the token in
         a response header instead of an HttpOnly cookie, since a script
         can't read cookies the way a browser session would.
-        IMPLEMENTED: Backend/routes/auth.route.js (POST /auth/signin) +
-        Backend/controllers/auth.controller.js (signInController).
-        LIVE-TESTED with real credentials: 200, returned a real
-        ingame_name ("Hobnoker") + token.
+        Still exactly what unlockController sends, just with email/
+        password sourced from process.env instead of req.body.
 
  [X]   b) Token comes back in the response, not a cookie:
         response.json().payload.user.ingame_name -> in-game name
         response.headers.Authorization  -> "JWT eyJhbGciOi..."
-        CONFIRMED in signInController via response.headers.get("authorization").
+        Still used as-is in unlockController.
 
- [ ]   c) Every authenticated request afterward reuses the same fixed header
-        block (this is what WarframeApi in AccessingWFMarket.py attaches
-        to every get/post/put/delete call) - ONLY VALID FOR v1 CALLS:
-            Content-Type: application/json; utf-8
-            Accept: application/json
-            auth_type: header
-            platform: pc
-            language: en
-            Authorization: JWT eyJhbGciOi...
-            User-Agent: <any identifying string>
-        NOTE: since milestone 4/5 now point at v2 endpoints, this v1
-        header block is no longer what gets used day-to-day - see (e).
-        It would still apply if any v1-only authenticated call turns up.
+ [X]   c) (historical only) Every authenticated v1 request reusing a
+        fixed v1 header block (auth_type/platform/language/Authorization:
+        JWT ...) - this pattern from the reference repo's WarframeApi
+        class is not used anywhere in the final code; every authenticated
+        call in this project targets v2 with a Bearer token instead (see e).
 
- [X]    d) No refresh logic - the token is obtained once at startup and reused
-            for the life of the process. LiveScraper.py does a single
-            sanity-check request and aborts on a 401:
-                if r.status_code == 401: raise Exception("Invalid JWT Token")
-            If it expires mid-run, the reference bot does not re-authenticate;
-            getting a new token means re-running sign-in (or, per the repo's
-            README, manually pulling an already-issued JWT from a browser
-            session via devtools and pasting it into config.json, avoiding
-            ever giving the script a raw password).
+ [X]    d) (historical only) The reference repo has no refresh logic - one
+            token per process lifetime, no re-auth on 401. This project's
+            equivalent is the frontend catching a 401 and re-prompting for
+            the access key (see "Frontend implication" above) rather than
+            an automatic silent refresh.
 
- [X]    e) NEW - CONFIRMED LIVE: v2 endpoints do NOT accept the v1
+ [X]    e) CONFIRMED LIVE: v2 endpoints do NOT accept the v1
             "Authorization: JWT <token>" header format. Tested directly:
               Authorization: JWT <token>        -> 401 app.errors.unauthorized
               Authorization: Bearer <token>      -> 401 app.errors.unauthorized
@@ -196,14 +216,9 @@ MILESTONES
             calls, and must be sent as "Bearer <rest of string>" instead
             of "JWT <rest of string>". This conversion is not documented
             anywhere in the reference repo (which never talks to v2) or in
-            the community OpenAPI spec - found only by live-testing.
-
-    Implementation implication: the Express backend needs to store the
-    JWT + platform + ingame_name server-side only (session/.env/small
-    store - never sent to the frontend) after (a)/(b), then, for any v2
-    profile/orders call (milestone 4/5), strip the "JWT " prefix and
-    attach it as "Authorization: Bearer <token>" instead of reusing the
-    v1 header block from (c) as-is.
+            the community OpenAPI spec - found only by live-testing, and
+            is exactly what unlockController does today
+            (response.headers.get("authorization").replace("JWT", "Bearer")).
 
 
 NOT AN API GAP

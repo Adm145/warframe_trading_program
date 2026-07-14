@@ -1,9 +1,7 @@
-const express = require('express');
+const express = require("express");
 const route = express.Router();
-const {
-    signInController
-} = require('../controllers/auth.controller');
+const { unlockController } = require("../controllers/auth.controller");
 
-route.post('/signin', signInController); // post -> localhost:3500/auth/signin
+route.post("/unlock", unlockController); // post -> localhost:3500/auth/unlock
 
 module.exports = route;

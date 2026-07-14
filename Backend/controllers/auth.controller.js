@@ -1,47 +1,23 @@
-require("dotenv").config();
-const { formatLocalTimestamp } = require("../utils/token.timestamp.util");
-const { saveSession } = require("../utils/session.util");
+const { compareAccessKey } = require("../bcrypt/accessKey.util");
+const { unlockService } = require("../services/auth.service");
 
-//todo check if more efficient to save password and email in .env->
-//todo ->and call endpoint on token expiration, instead of entering creds on frontend.
-const authBaseUrl = `${process.env.WARFRAME_MARKET_API_V1}/auth/signin`;
+const unlockController = async (req, res) => {
+   const { accessKey } = req.body;
+   try {
+      const isValid = await compareAccessKey(accessKey);
 
-const signInController = async (req, res) => {
-    const { email, password } = req.body;
-    try {
-          const response = await fetch(`${authBaseUrl}`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json; utf-8",
-                "Accept": "application/json",
-                "Authorization": "JWT",
-                "platform": "pc",
-                "language": "en"
-            },
-            body: JSON.stringify({ email, password, auth_type: "header" })
-          });
+      if (!isValid) {
+         return res.status(401).json({ detail: "Invalid access key." });
+      }
 
-          if (!response.ok) {
-            const detail = await response.text();
-            return res.status(response.status).json({ detail });
-          }
-
-          const data = await response.json();
-          
-          const ingameName = data.payload.user.ingame_name;
-          const token = response.headers.get("authorization").replace("JWT", "Bearer");
-          const timestamp = formatLocalTimestamp(response.headers.get("date"));
-          saveSession(ingameName, token, timestamp);
-
-          console.log("status 200 ok");
-          res.json({ingameName : ingameName, token : token, timestamp : timestamp});
-        
-    } catch (err) {
-        // res.error(err)
-        console.log("error");
-    }
-}
+      unlockService();
+      res.status(200).json("200 ok success");
+   } catch (err) {
+      // res.error(err)
+      console.log(`error: ${err}`);
+   }
+};
 
 module.exports = {
-    signInController
-}
+   unlockController,
+};

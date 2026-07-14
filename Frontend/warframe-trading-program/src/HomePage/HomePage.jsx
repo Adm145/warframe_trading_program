@@ -1,20 +1,8 @@
-import './HomePage.css'
-import React from 'react'
-import RightSection from './RightSection/RightSection'
-import LeftSection from './LeftSection/LeftSection'
+import "./HomePage.css";
+import React from "react";
 
 const HomePage = () => {
-  return (
-    <div className="HomePage">
-        <section className="section1">
-            <RightSection />
-        </section>
+   return <main className="HomePage"></main>;
+};
 
-        <section className="section2">
-            <LeftSection />
-        </section>
-    </div>
-  )
-}
-
-export default HomePage
+export default HomePage;
