@@ -1,0 +1,224 @@
+API_DATA_TO_IMPLEMENT
+======================
+Data points from warframe.market (v2, except milestone 2 and step 6.a which
+are v1 only - see notes) still needed to match the logic/data used in
+https://github.com/akmayer/Warframe-Algo-Trader.git.
+Milestones 4 and 5 turned out to live under v2 (/v2/orders/my etc.), not
+v1/profile as the reference repo used - see the REVISED notes on each.
+Auth (milestone 6) still only exists via v1 sign-in, but the resulting
+token must be reformatted (JWT -> Bearer, prefix stripped) to work
+against v2 - see step 6.e.
+
+Currently implemented (orders.controller.js):
+  [x] GET /v2/orders/item/{item_name}       - full live order book for an item
+  [x] GET /v2/orders/item/{item_name}/top   - top 5 buy/sell orders for an item
+
+
+MILESTONES
+----------
+
+[X] 1. All tradable items - GET /v2/items
+    Reference: StatsScraper.py (GET /v1/items) builds the full item name
+    list + urlLookup; inventoryApi.py's /all_items route serves it to the
+    frontend for the item picker/datalist.
+    Needed to: loop over "every item" like StatsScraper.py does, and to
+    validate an item name exists before requesting it.
+
+[X] 2. Item price statistics - GET /v1/items/{url_name}/statistics
+    CONFIRMED LIVE: this endpoint only exists on v1. Checked
+    GET /v2/items/{slug}/statistics directly against the API -> 404 page
+    not found. GET /v1/items/{url_name}/statistics -> 200, returns
+    statistics_closed (48hours / 90days) with volume, min_price, max_price,
+    avg_price, median, mod_rank, etc. per item. So this one data point
+    must be fetched from v1 even though the rest of the project is on v2.
+    Reference: StatsScraper.py instead scrapes a third-party mirror
+    (relics.run/history/price_history_{date}.json) for ~7 days of
+    closed-order data, written to allItemData.csv. That CSV is the entire
+    input to getBuySellOverlap() in AccessingWFMarket.py, which decides
+    which items are "interesting" via volumeThreshold, rangeThreshold,
+    avgPriceCap, priceShiftThreshold (settings.json).
+    Hitting v1's /statistics endpoint directly can replace the relics.run
+    scraping approach entirely. Without this there is no way to replicate
+    the "which items are worth trading" filter.
+    NOTE: {url_name} on v1 and {slug} on v2 are the same string format
+    (e.g. "creeping_bullseye") - just fetch this one endpoint against the
+    v1 host instead of v2.
+
+[X] 3. Single item detail - GET /v2/items/{url_name}
+    Reference: LiveScraper.py (fetched when an item isn't already in the
+    cached stats) - gives item_id (needed to place an order) and
+    mod_max_rank (needed for mods/relics/arcanes where rank affects price).
+    Needed for any item not covered by milestone 2's cache.
+    CONFIRMED LIVE (bonus): GET /v2/items/{id} also works with the Mongo
+    item id (not just the slug) - e.g. GET /v2/items/66fd692b3a826eccf651cd59
+    -> {"slug":"burning_claws", ...}. Useful for resolving itemId values
+    that come back from milestone 4's /v2/orders/my response.
+
+[X] 4. Your own current orders - GET /v2/orders/my  (REVISED - see below)
+    NOT YET WIRED INTO EXPRESS - confirmed via direct API calls only;
+    orders.route.js/orders.controller.js still need a real route/controller
+    for this (same Bearer-token pattern as milestone 5).
+    SUPERSEDED FINDING: the reference repo's path,
+    GET /v1/profile/{inGameName}/orders, is dead. Confirmed live:
+      - GET /v1/profile              -> {"error":"Deprecated"}  (403)
+      - GET /v1/profile/{name}/orders -> 404, even when sent with a real,
+        valid JWT (tested with an actual signed-in token, not just a
+        missing/bogus one - this rules out "just needs auth", the route
+        itself is gone).
+      - GET /v2/profile/{slug}/orders, /v2/profile/orders -> 404 on v2 too
+        (consistent with v2 OAuth not being live - see milestone 6).
+    The REAL, currently-live endpoint, confirmed with a real signed-in
+    JWT: GET https://api.warframe.market/v2/orders/my
+      -> 200 {"apiVersion":"...","data":[{ id, type, platinum, quantity,
+              perTrade, rank, visible, createdAt, updatedAt, itemId }, ...],
+              "error":null}
+    Auth header required is NOT the v1 "JWT <token>" format - see
+    milestone 6 for the header conversion needed.
+    Also confirmed live: GET https://api.warframe.market/v2/me (own
+    account info: id, ingameName, slug, reputation, masteryRank, credits,
+    platform, etc.) - same auth requirement as /v2/orders/my.
+    GET /v2/me/orders and /v2/orders/mine do NOT exist (404) - the correct
+    path is specifically /v2/orders/my.
+    Reference: getOrders() in AccessingWFMarket.py, called every loop
+    iteration in LiveScraper.py. This is how the bot knows "do I already
+    have a buy/sell posted on this item, at what price, is it visible"
+    (getMyOrderInformation) before deciding to post a new one vs. update
+    vs. leave alone.
+
+[X] 5. Order mutations - POST /v2/order, PATCH /v2/order/{order_id},
+    DELETE /v2/order/{order_id}  (CONFIRMED LIVE - full create/update/delete
+    cycle tested end-to-end against a real, throwaway order)
+    NOTE: path is /v2/order, SINGULAR - inconsistent with the read
+    endpoint /v2/orders/my (plural). Easy to get wrong.
+    NOT YET WIRED INTO EXPRESS - confirmed via direct API calls only;
+    orders.route.js/orders.controller.js still need the real
+    routes/controllers written (see stubs below).
+
+    a) POST https://api.warframe.market/v2/order
+       Auth: same "Authorization: Bearer <token>" as /v2/me, /v2/orders/my
+       Required body fields (revealed via the validation error from an
+       empty {} body): itemId, type ("sell"/"buy"), platinum, quantity,
+       and rank - rank is only required for items with ranks (mods,
+       rivens, etc; app.field.required if omitted on a rankable item;
+       omit entirely for non-rankable items).
+       Live test: POST itemId=54a74454e779892d5e5155cc (blind_rage),
+       type=sell, platinum=600, quantity=1, rank=10
+       -> 200 {"id":"6a4e46e12202c9dc0adf1d05","type":"sell","platinum":600,
+               "quantity":1,"perTrade":1,"rank":10,"visible":false,
+               "createdAt":...,"updatedAt":...,"itemId":"54a74454e779892d5e5155cc"}
+       New orders default to visible:false (hidden) - matches the
+       reference bot's pattern of posting hidden-by-default.
+
+    b) PATCH https://api.warframe.market/v2/order/{order_id}
+       IMPORTANT: this is PATCH, not PUT. PUT returned 405 Method Not
+       Allowed on both /v2/order/{id} and /v2/orders/{id}; only
+       PATCH /v2/order/{id} (singular) worked.
+       Live test: PATCH platinum=500, quantity=2 on the order above
+       -> 200, platinum/quantity updated, rest unchanged, updatedAt bumped.
+
+    c) DELETE https://api.warframe.market/v2/order/{order_id}
+       Live test: DELETE on the same order -> 200, echoes the deleted
+       order back in the response. Verified gone via a follow-up
+       GET /v2/orders/my (back to only the original 2 real orders).
+
+    Reference: postOrder, updateListing, deleteOrder in
+    AccessingWFMarket.py - the actual trading actions called by
+    compareLiveOrdersWhenBuying / compareLiveOrdersWhenSelling.
+    orders.route.js currently has empty stubs for these three verbs
+    (route.post(''), route.put(''), route.delete('')) - these need
+    real paths (/:order_id where applicable), the PUT stub needs to
+    become a PATCH, and matching controller functions need writing.
+    Requires auth (milestone 6) - same Bearer-token flow already built.
+
+[ ] 6. Auth/login - POST /v1/auth/signin (v2 OAuth not available yet)
+    CONFIRMED: per https://docs.warframe.market/docs/oauth/overview, v2
+    OAuth is not live yet. v1 sign-in is still the only way to obtain a
+    token, but that token must be reformatted before it will work against
+    the live v2 endpoints found in milestone 4 - see step (e) below, added
+    after live-testing with real credentials.
+
+    How v1 auth works (from getWFMtoken.py / AccessingWFMarket.py /
+    config.py in the reference repo):
+
+ [X]  a) POST https://api.warframe.market/v1/auth/signin
+        Headers: Content-Type: application/json; utf-8,
+                    Accept: application/json,
+                    Authorization: JWT   (literal, no token yet),
+                    platform: pc/ps4/xbox/switch (lowercase),
+                    language: en
+        Body: { "email": "<email>", "password": "<password>",
+                "auth_type": "header" }
+        "auth_type": "header" tells warframe.market to return the token in
+        a response header instead of an HttpOnly cookie, since a script
+        can't read cookies the way a browser session would.
+        IMPLEMENTED: Backend/routes/auth.route.js (POST /auth/signin) +
+        Backend/controllers/auth.controller.js (signInController).
+        LIVE-TESTED with real credentials: 200, returned a real
+        ingame_name ("Hobnoker") + token.
+
+ [X]   b) Token comes back in the response, not a cookie:
+        response.json().payload.user.ingame_name -> in-game name
+        response.headers.Authorization  -> "JWT eyJhbGciOi..."
+        CONFIRMED in signInController via response.headers.get("authorization").
+
+ [ ]   c) Every authenticated request afterward reuses the same fixed header
+        block (this is what WarframeApi in AccessingWFMarket.py attaches
+        to every get/post/put/delete call) - ONLY VALID FOR v1 CALLS:
+            Content-Type: application/json; utf-8
+            Accept: application/json
+            auth_type: header
+            platform: pc
+            language: en
+            Authorization: JWT eyJhbGciOi...
+            User-Agent: <any identifying string>
+        NOTE: since milestone 4/5 now point at v2 endpoints, this v1
+        header block is no longer what gets used day-to-day - see (e).
+        It would still apply if any v1-only authenticated call turns up.
+
+ [X]    d) No refresh logic - the token is obtained once at startup and reused
+            for the life of the process. LiveScraper.py does a single
+            sanity-check request and aborts on a 401:
+                if r.status_code == 401: raise Exception("Invalid JWT Token")
+            If it expires mid-run, the reference bot does not re-authenticate;
+            getting a new token means re-running sign-in (or, per the repo's
+            README, manually pulling an already-issued JWT from a browser
+            session via devtools and pasting it into config.json, avoiding
+            ever giving the script a raw password).
+
+ [X]    e) NEW - CONFIRMED LIVE: v2 endpoints do NOT accept the v1
+            "Authorization: JWT <token>" header format. Tested directly:
+              Authorization: JWT <token>        -> 401 app.errors.unauthorized
+              Authorization: Bearer <token>      -> 401 app.errors.unauthorized
+              Authorization: Bearer <raw token, "JWT " prefix stripped>
+                                                  -> 200, real data
+            So the v1 sign-in response's token string ("JWT eyJ...") must
+            have the "JWT " prefix stripped before being reused on v2
+            calls, and must be sent as "Bearer <rest of string>" instead
+            of "JWT <rest of string>". This conversion is not documented
+            anywhere in the reference repo (which never talks to v2) or in
+            the community OpenAPI spec - found only by live-testing.
+
+    Implementation implication: the Express backend needs to store the
+    JWT + platform + ingame_name server-side only (session/.env/small
+    store - never sent to the frontend) after (a)/(b), then, for any v2
+    profile/orders call (milestone 4/5), strip the "JWT " prefix and
+    attach it as "Authorization: Bearer <token>" instead of reusing the
+    v1 header block from (c) as-is.
+
+
+NOT AN API GAP
+---------------
+The Inventory Manager (buy/sell tracking, purchase price, transaction log)
+and the profit graph in the reference repo are backed by its own local
+SQLite DB, not warframe.market - nothing to fetch there, just local state
+to be designed independently.
+
+
+PRIORITY ORDER TO MATCH THE REFERENCE BOT'S ACTUAL BEHAVIOR
+-------------------------------------------------------------
+(2) statistics -> tells you what's interesting
+  -> (3) item detail -> gives you the id/rank to trade it
+  -> (6) auth -> unlocks (4) my orders and (5) post/update/delete
+  -> closes the loop into an actual trading bot.
+
+(1) is more of a UX nicety (item picker/validation) than a logic dependency.
