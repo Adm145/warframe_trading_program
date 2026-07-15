@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { UnauthorizedError } = require("./error.util");
 
 const sessionFilePath = path.join(__dirname, "..", "session.json");
 
@@ -21,7 +22,16 @@ const getSession = () => {
    return parsed;
 };
 
+const requireSession = () => {
+   const session = getSession();
+   if (!session) {
+      throw UnauthorizedError("No active session. Unlock first.");
+   }
+   return session;
+};
+
 module.exports = {
    saveSession,
    getSession,
+   requireSession,
 };

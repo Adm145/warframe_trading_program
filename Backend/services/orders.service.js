@@ -1,14 +1,15 @@
 require("dotenv").config();
-const { getSession } = require("../utils/session.util");
+const { requireSession } = require("../utils/session.util");
+const { ApiError } = require("../utils/ApiError");
 
-const ordersBaseUrl = `${process.env.WARFRAME_MARKET_API_V2}/orders/`;
+const ordersBaseUrl = `${process.env.WARFRAME_MARKET_API_V2}/orders`;
 
 const getOrdersForItemService = async (itemName) => {
    const response = await fetch(`${ordersBaseUrl}/item/${itemName}`);
 
    if (!response.ok) {
       const detail = await response.text();
-      return res.status(response.status).json({ detail });
+      throw ApiError(response.status, detail);
    }
 
    const data = await response.json();
@@ -16,12 +17,11 @@ const getOrdersForItemService = async (itemName) => {
 }
 
 const getTopOrdersForItemService = async (itemName) => {
-    const data = getTopOrdersForItemService(itemName)
    const response = await fetch(`${ordersBaseUrl}/item/${itemName}/top`);
 
    if (!response.ok) {
       const detail = await response.text();
-      return res.status(response.status).json({ detail });
+      throw ApiError(response.status, detail);
    }
 
    const data = await response.json();
@@ -29,7 +29,7 @@ const getTopOrdersForItemService = async (itemName) => {
 }
 
 const getUserOrdersService = async () => {
-   const { token } = getSession();
+   const { token } = requireSession();
 
    const response = await fetch(`${ordersBaseUrl}/my`, {
       method: "GET",
@@ -41,7 +41,7 @@ const getUserOrdersService = async () => {
 
    if (!response.ok) {
       const detail = await response.text();
-      return res.status(response.status).json({ detail });
+      throw ApiError(response.status, detail);
    }
 
    const data = await response.json();

@@ -6,14 +6,16 @@ const { getOrderHistoryService } = require("../services/orderHistory.service")
 //            avgSellPrice, maxSellPrice }, ...]
 // avgSellPrice/maxSellPrice are computed from sell-type orders only, and
 // are null when an item has no sell orders in the window.
-const getOrderHistoryController = (req, res) => {
+const getOrderHistoryController = async (req, res) => {
    try {
       const window = req.params.window;
-      const results = getOrderHistoryService(window)
+      const results = await getOrderHistoryService(window)
       res.json(results);
    } catch (err) {
-      //res.error(err)
-      console.log(`error`)
+      if (err.isApiError) {
+         return res.status(err.status).json({ detail: err.detail });
+      }
+      res.status(500).json({ detail: "Internal server error." });
    }
 };
 

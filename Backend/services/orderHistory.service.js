@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { resolveItemId } = require("../utils/itemIndex.util");
+const { BadRequestError } = require("../utils/error.util");
 
 const ordersDir = path.join(__dirname, "..", "data", "orders");
 
@@ -11,16 +12,16 @@ const WINDOW_MS = {
    "14d": 14 * 24 * 60 * 60 * 1000,
 };
 
-const getOrderHistoryService = async (window) => {
+const getOrderHistoryService = (window) => {
    const windowMs = WINDOW_MS[window];
    if (!windowMs) {
-      return res.status(400).json({
-         detail: `Invalid window. Use one of: ${Object.keys(WINDOW_MS).join(", ")}`,
-      });
+      throw BadRequestError(
+         `Invalid window. Use one of: ${Object.keys(WINDOW_MS).join(", ")}`,
+      );
    }
 
    if (!fs.existsSync(ordersDir)) {
-      return res.json([]);
+      return [];
    }
 
    const cutoff = Date.now() - windowMs;

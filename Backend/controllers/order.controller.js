@@ -1,9 +1,10 @@
-const { 
+const {
    postNewOrderService,
    updateOrderByIdService,
    deleteOrderByIdService,
    closeOrderByIdService,
 } = require("../services/order.service");
+const { BadRequestError } = require("../utils/error.util");
 
 
 // POST localhost:3500/order/add/:item_name  (e.g. /order/add/blind_rage)
@@ -21,8 +22,10 @@ const postNewOrderController = async (req, res) => {
       const data = await postNewOrderService(itemName, type, platinum, quantity, rank);
       res.json(data);
    } catch (err) {
-      // res.error(err)
-      console.log("error");
+      if (err.isApiError) {
+         return res.status(err.status).json({ detail: err.detail });
+      }
+      res.status(500).json({ detail: "Internal server error." });
    }
 };
 
@@ -40,8 +43,10 @@ const updateOrderByIdController = async (req, res) => {
       const data = await updateOrderByIdService(orderId, body);
       res.json(data);
    } catch (err) {
-      // res.error(err)
-      console.log("error");
+      if (err.isApiError) {
+         return res.status(err.status).json({ detail: err.detail });
+      }
+      res.status(500).json({ detail: "Internal server error." });
    }
 };
 
@@ -53,8 +58,10 @@ const deleteOrderByIdController = async (req, res) => {
       const data = await deleteOrderByIdService(orderId)
       res.json(data);
    } catch (err) {
-      // res.error(err)
-      console.log("error");
+      if (err.isApiError) {
+         return res.status(err.status).json({ detail: err.detail });
+      }
+      res.status(500).json({ detail: "Internal server error." });
    }
 };
 
@@ -63,17 +70,27 @@ const deleteOrderByIdController = async (req, res) => {
 // {
 //   "quantity": 3
 // }
-//only closes the entire order if "quantity" is undefined OR newQuantity >= currQuantity
+// "quantity" must be omitted (closes the whole order) or a positive number
+// no greater than the order's current quantity (subtracts that amount).
 const closeOrderByIdController = async (req, res) => {
    const orderId = req.params.order_id;
    const { quantity } = req.body;
 
    try {
-      const data = await closeOrderByIdService(orderId, quantity)
+      if (
+         quantity !== undefined &&
+         (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity <= 0)
+      ) {
+         throw BadRequestError('"quantity" must be a positive number or omitted entirely.');
+      }
+
+      const data = await closeOrderByIdService(orderId, quantity);
       res.json(data);
    } catch (err) {
-      // res.error(err)
-      console.log("error");
+      if (err.isApiError) {
+         return res.status(err.status).json({ detail: err.detail });
+      }
+      res.status(500).json({ detail: "Internal server error." });
    }
 };
 

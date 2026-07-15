@@ -1,13 +1,14 @@
 require("dotenv").config();
+const { ApiError } = require("../utils/ApiError");
 
-const itemsBaseUrl = `${process.env.WARFRAME_MARKET_API_V2}/items/`;
+const itemsBaseUrl = `${process.env.WARFRAME_MARKET_API_V2}/items`;
 
 const getAllItemsService = async () => {
    const response = await fetch(`${itemsBaseUrl}`);
 
       if (!response.ok) {
          const detail = await response.text();
-         return res.status(response.status).json({ detail });
+         throw ApiError(response.status, detail);
       }
 
    const data = await response.json();
@@ -19,7 +20,7 @@ const getItemDetailsService = async (itemName) => {
 
    if (!response.ok) {
       const detail = await response.text();
-      return res.status(response.status).json({ detail });
+      throw ApiError(response.status, detail);
    }
 
    const data = await response.json();
@@ -31,7 +32,7 @@ const getItemStatisticsService = async (itemName) => {
 
    if (!response.ok) {
       const detail = await response.text();
-      return res.status(response.status).json({ detail });
+      throw ApiError(response.status, detail);
    }
 
    const data = await response.json();

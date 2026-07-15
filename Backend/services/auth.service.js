@@ -1,6 +1,7 @@
 require("dotenv").config();
 const { formatLocalTimestamp } = require("../utils/token.timestamp.util");
 const { saveSession } = require("../utils/session.util");
+const { ApiError } = require("../utils/ApiError");
 
 const authBaseUrl = `${process.env.WARFRAME_MARKET_API_V1}/auth/signin`;
 
@@ -23,7 +24,7 @@ const unlockService = async () => {
 
    if (!response.ok) {
       const detail = await response.text();
-      return res.status(response.status).json({ detail });
+      throw ApiError(response.status, detail);
    }
 
    const data = await response.json();
@@ -32,8 +33,6 @@ const unlockService = async () => {
    const token = response.headers.get("authorization").replace("JWT", "Bearer");
    const timestamp = await formatLocalTimestamp(response.headers.get("date"));
    saveSession(ingameName, token, timestamp);
-
-   return data;
 };
 
 module.exports = {

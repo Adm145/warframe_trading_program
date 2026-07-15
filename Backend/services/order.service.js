@@ -1,12 +1,14 @@
 require("dotenv").config();
 const { getItemId } = require("../utils/item.util");
-const { getSession } = require("../utils/session.util");
+const { requireSession } = require("../utils/session.util");
+const { ApiError } = require("../utils/ApiError");
+const { NotFoundError, BadRequestError } = require("../utils/error.util");
 
 const orderBaseUrl = `${process.env.WARFRAME_MARKET_API_V2}/order`;
 
-const postNewOrderService = async (itemName) => {
+const postNewOrderService = async (itemName, type, platinum, quantity, rank) => {
    const itemId = await getItemId(itemName);
-   const { token } = await getSession();
+   const { token } = requireSession();
 
    const response = await fetch(`${orderBaseUrl}`, {
       method: "POST",
@@ -19,16 +21,16 @@ const postNewOrderService = async (itemName) => {
 
    if (!response.ok) {
       const detail = await response.text();
-      return res.status(response.status).json({ detail });
+      throw ApiError(response.status, detail);
    }
 
    const data = await response.json();
    return data;
 }
 
-const updateOrderByIdService = (orderId, body) => {
-   const { token } = await getSession();
-   
+const updateOrderByIdService = async (orderId, body) => {
+   const { token } = requireSession();
+
    const response = await fetch(`${orderBaseUrl}/${orderId}`, {
       method: "PATCH",
       headers: {
@@ -40,83 +42,87 @@ const updateOrderByIdService = (orderId, body) => {
 
    if (!response.ok) {
       const detail = await response.text();
-      return res.status(response.status).json({ detail });
+      throw ApiError(response.status, detail);
    }
 
    const data = await response.json();
    return data;
 }
 
-const deleteOrderByIdService = (orderId) => {
-   const { token } = getSession();
+const deleteOrderByIdService = async (orderId) => {
+   const { token } = requireSession();
 
-      const response = await fetch(`${orderBaseUrl}/${orderId}`, {
-         method: "DELETE",
-         headers: {
-            "Content-Type": "application/json",
-            Authorization: token,
-         },
-      });
+   const response = await fetch(`${orderBaseUrl}/${orderId}`, {
+      method: "DELETE",
+      headers: {
+         "Content-Type": "application/json",
+         Authorization: token,
+      },
+   });
 
-      if (!response.ok) {
-         const detail = await response.text();
-         return res.status(response.status).json({ detail });
-      }
+   if (!response.ok) {
+      const detail = await response.text();
+      throw ApiError(response.status, detail);
+   }
 
-      const data = await response.json();
-      return data;
+   const data = await response.json();
+   return data;
 }
 
-const closeOrderByIdService = (orderId, quantity) => {
-   const { token } = getSession();
-   let response;
+const closeOrderByIdService = async (orderId, quantity) => {
+   const { token } = requireSession();
 
-      if (quantity === undefined) {
-         response = await deleteOrderByIdService(orderId);
-      } else {
-         // quantity given - need the order's current quantity first,
-         // since there's no "get single order" endpoint
-         const ordersResponse = await fetch(
-            `${process.env.WARFRAME_MARKET_API_V2}/orders/my`,
-            {
-               headers: { Authorization: token },
-            },
-         );
+   if (quantity === undefined) {
+      return await deleteOrderByIdService(orderId);
+   }
 
-         if (!ordersResponse.ok) {
-            const detail = await ordersResponse.text();
-            return res.status(ordersResponse.status).json({ detail });
-         }
+   // quantity given - need the order's current quantity first,
+   // since there's no "get single order" endpoint
+   const ordersResponse = await fetch(
+      `${process.env.WARFRAME_MARKET_API_V2}/orders/my`,
+      {
+         headers: { Authorization: token },
+      },
+   );
 
-         const { data: orders } = await ordersResponse.json();
-         const currentOrder = orders.find((order) => order.id === orderId);
+   if (!ordersResponse.ok) {
+      const detail = await ordersResponse.text();
+      throw ApiError(ordersResponse.status, detail);
+   }
 
-         if (!currentOrder) {
-            return res.status(404).json({ detail: "Order not found." });
-         }
+   const { data: orders } = await ordersResponse.json();
+   const currentOrder = orders.find((order) => order.id === orderId);
 
-         const newQuantity = currentOrder.quantity - quantity;
+   if (!currentOrder) {
+      throw NotFoundError("Order not found.");
+   }
 
-         response =
-            newQuantity <= 0
-               ? await deleteOrderByIdService(orderId)
-               : await fetch(`${orderBaseUrl}/${orderId}`, {
-                  method: "PATCH",
-                  headers: {
-                     "Content-Type": "application/json",
-                     Authorization: token,
-                  },
-                  body: JSON.stringify({ quantity: newQuantity }),
-               });
-      }
+   if (quantity > currentOrder.quantity) {
+      throw BadRequestError("quantity cannot exceed the order's current quantity.");
+   }
 
-      if (!response.ok) {
-         const detail = await response.text();
-         return res.status(response.status).json({ detail });
-      }
+   const newQuantity = currentOrder.quantity - quantity;
 
-      const data = await response.json();
-      return data;
+   if (newQuantity === 0) {
+      return await deleteOrderByIdService(orderId);
+   }
+
+   const response = await fetch(`${orderBaseUrl}/${orderId}`, {
+      method: "PATCH",
+      headers: {
+         "Content-Type": "application/json",
+         Authorization: token,
+      },
+      body: JSON.stringify({ quantity: newQuantity }),
+   });
+
+   if (!response.ok) {
+      const detail = await response.text();
+      throw ApiError(response.status, detail);
+   }
+
+   const data = await response.json();
+   return data;
 }
 
 module.exports = {

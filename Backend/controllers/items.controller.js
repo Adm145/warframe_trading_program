@@ -1,4 +1,4 @@
-const { 
+const {
     getAllItemsService,
     getItemStatisticsService,
     getItemDetailsService
@@ -10,8 +10,10 @@ const getAllItemsController = async (req, res) => {
       const data = await getAllItemsService();
       res.json(data);
    } catch (err) {
-      // res.error(err)
-      console.log("error");
+      if (err.isApiError) {
+         return res.status(err.status).json({ detail: err.detail });
+      }
+      res.status(500).json({ detail: "Internal server error." });
    }
 }
 
@@ -21,8 +23,10 @@ const getItemDetailsController = async (req, res) => {
       const data = await getItemDetailsService(itemName);
       res.json(data);
    } catch (err) {
-      // res.error(err)
-      console.log("error");
+      if (err.isApiError) {
+         return res.status(err.status).json({ detail: err.detail });
+      }
+      res.status(500).json({ detail: "Internal server error." });
    }
 }
 
@@ -32,8 +36,10 @@ const getItemStatisticsController = async (req, res) => {
      const data = await getItemStatisticsService(itemName)
       res.json(data);
    } catch (err) {
-      // res.error(err)
-      console.log("error");
+      if (err.isApiError) {
+         return res.status(err.status).json({ detail: err.detail });
+      }
+      res.status(500).json({ detail: "Internal server error." });
    }
 }
 
